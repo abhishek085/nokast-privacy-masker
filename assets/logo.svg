@@ -1,0 +1,38 @@
+<svg width="640" height="180" viewBox="0 0 640 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Nokast Privacy Hook">
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b8def"/>
+      <stop offset="1" stop-color="#3358d4"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f2937"/>
+      <stop offset="1" stop-color="#3358d4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Shield mark -->
+  <g transform="translate(30 24)">
+    <path d="M66 4 L122 24 V72 C122 110 96 130 66 140 C36 130 10 110 10 72 V24 Z"
+          fill="url(#shield)"/>
+    <path d="M66 4 L122 24 V72 C122 110 96 130 66 140 C36 130 10 110 10 72 V24 Z"
+          fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="2"/>
+    <!-- Hook / lock keyhole -->
+    <circle cx="66" cy="62" r="16" fill="none" stroke="#ffffff" stroke-width="7"/>
+    <path d="M66 76 V104 C66 116 52 116 52 104" fill="none" stroke="#ffffff"
+          stroke-width="7" stroke-linecap="round"/>
+  </g>
+
+  <!-- Wordmark -->
+  <g transform="translate(180 0)">
+    <text x="0" y="80" font-family="-apple-system, Segoe UI, Helvetica, Arial, sans-serif"
+          font-size="44" font-weight="800" fill="url(#ink)">Privacy Hook</text>
+    <text x="2" y="112" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="18" font-weight="500" fill="#6b7280" letter-spacing="1">
+      mask before you AI · a nokast tool
+    </text>
+    <text x="2" y="142" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+          font-size="14" fill="#9aa3b2">
+      privacy-first CLI for builders · 100% local
+    </text>
+  </g>
+</svg>
