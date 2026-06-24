@@ -224,11 +224,11 @@ def test_ner_status_off_when_no_ner_categories():
 
 @pytest.fixture(scope="module")
 def ner_masker():
-    pytest.importorskip("spacy")
-    from privacy_masker.detectors import NerUnavailable, load_model
+    pytest.importorskip("presidio_analyzer")
+    from privacy_masker.detectors import NerUnavailable, load_analyzer
 
     try:
-        load_model()
+        load_analyzer()
     except NerUnavailable as exc:
         pytest.skip(str(exc))
     cfg = Config(

@@ -42,7 +42,7 @@ def _ner_hint(masker: Masker) -> str | None:
     """Return an actionable hint if PII (NER) categories are on but unavailable."""
 
     status = getattr(masker, "ner_status", "off")
-    if status in ("no_spacy", "no_model"):
+    if status in ("no_presidio", "no_model"):
         return getattr(masker, "ner_message", "NER detection unavailable.")
     return None
 
@@ -108,7 +108,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     if not args.quiet:
         print(BANNER)
         if masker.ner_status == "active":
-            print("PII detection (names, locations) is active via spaCy NER.")
+            print("PII detection (names, locations) is active via Presidio NER.")
         hint = _ner_hint(masker)
         if hint:
             print(f"note: PII detection is enabled but inactive. {hint}")
@@ -323,7 +323,7 @@ def cmd_config(args: argparse.Namespace) -> int:
     masker = Masker(config)
     status_msg = {
         "off": "off (no PII categories enabled)",
-        "active": "active (spaCy NER loaded)",
+        "active": "active (Presidio NER loaded)",
     }.get(masker.ner_status, getattr(masker, "ner_message", masker.ner_status))
     print(f"PII / NER detection: {status_msg}")
 

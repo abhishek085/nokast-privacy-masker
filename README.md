@@ -58,8 +58,8 @@ work: in the terminal and the clipboard.
 | **IP addresses** | octet-validated IPv4, e.g. `192.168.1.50` → `[IP]` |
 | **Custom keywords** | Your own list of client names / project codewords → `[REDACTED]` |
 
-**Contextual PII** (spaCy NER, the optional `[ner]` extra) — catches data that has
-*no fixed shape* and can't be matched by regex:
+**Contextual PII** (Microsoft Presidio NER, the optional `[ner]` extra) — catches data
+that has *no fixed shape* and can't be matched by regex:
 
 | Category | Examples | Default |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ tends to over-redact ordinary prose. Enable them in the config when you need the
 Placeholders are **labelled** (`[EMAIL]`, not `XXX`) so the AI still understands the
 shape of your text — it knows a name *was* there without ever seeing it. Every token,
 category, and the keyword list is configurable. Everything runs **fully locally**,
-including the NER model.
+including the Presidio/spaCy NER model.
 
 ---
 
@@ -210,7 +210,7 @@ detectors coexist cleanly:
 
 1. **Collect** — every active *detector* scans the text and reports *where* sensitive
    data is, as `(start, end, category)` spans. A regex `Pattern` is one detector; the
-   spaCy NER model is another. Neither touches the text yet.
+   Presidio NER engine is another. Neither touches the text yet.
 2. **Resolve overlaps** — spans are sorted and de-conflicted (most-sensitive label
    wins) so two detectors matching the same text never corrupt the output.
 3. **Splice** — a single left-to-right pass swaps each surviving span for its token.
@@ -224,7 +224,7 @@ dictionary/gazetteer, a different NER model, even a local LLM) is just implement
 ```
 privacy_masker/
 ├── patterns.py    # Regex detectors per category + Luhn validation
-├── detectors.py   # Detector protocol + spaCy NER detector (contextual PII)
+├── detectors.py   # Detector protocol + Presidio NER detector (contextual PII)
 ├── masker.py      # The engine: collects findings, resolves overlaps, redacts
 ├── vault.py       # Reversible lock/unlock: scrypt + Fernet encrypted vault
 ├── config.py      # Load/save user config (categories, tokens, keywords)

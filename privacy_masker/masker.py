@@ -23,7 +23,7 @@ from typing import Iterable
 
 from . import detectors, patterns
 from .config import Config
-from .detectors import NerUnavailable, SpacyNerDetector
+from .detectors import NerUnavailable, PresidioNerDetector
 from .patterns import Finding, Pattern
 
 
@@ -86,9 +86,9 @@ class Masker:
         """Collect the active detectors for the current config.
 
         Sets ``self._detectors`` (regex patterns + custom keywords + an optional
-        spaCy NER detector) and ``self.ner_status`` -- one of ``"off"`` (no NER
+        Presidio NER detector) and ``self.ner_status`` -- one of ``"off"`` (no NER
         categories enabled), ``"active"``, or a ``NerUnavailable.reason``
-        (``"no_spacy"`` / ``"no_model"``) so the CLI can guide the user.
+        (``"no_presidio"`` / ``"no_model"``) so the CLI can guide the user.
         """
 
         active: list = []
@@ -108,7 +108,7 @@ class Masker:
         enabled_ner = self.config.enabled_categories & set(patterns.NER_CATEGORIES)
         if enabled_ner:
             try:
-                active.append(SpacyNerDetector(enabled_ner))
+                active.append(PresidioNerDetector(enabled_ner))
                 self.ner_status = "active"
             except NerUnavailable as exc:
                 # Regex masking still works; record why NER is inert.
