@@ -29,6 +29,7 @@ DEFAULT_REPLACEMENTS: dict[str, str] = {
     patterns.PHONE: "[PHONE]",
     patterns.SSN: "[SSN]",
     patterns.CREDIT_CARD: "[CARD]",
+    patterns.IP: "[IP]",
     patterns.KEYWORD: "[REDACTED]",
     patterns.PERSON: "[NAME]",
     patterns.LOCATION: "[LOCATION]",

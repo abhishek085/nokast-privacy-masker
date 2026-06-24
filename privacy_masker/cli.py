@@ -7,18 +7,24 @@ AI tool::
     pbpaste | privacy-masker mask | pbcopy        # mask the clipboard manually
     privacy-masker mask --clipboard               # same, in one step
     privacy-masker watch                          # auto-mask the clipboard live
+    privacy-masker lock app.py                    # reversibly mask secrets in a file
+    privacy-masker unlock app.py                  # restore them with your passphrase
     privacy-masker keywords add "Project Titan"   # manage the keyword list
 """
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import sys
 import time
+from pathlib import Path
 
 from . import __version__
 from .config import Config
 from .masker import Masker
+
+KEYRING_SERVICE = "nokast-privacy-masker"
 
 BANNER = r"""
   ┌──────────────────────────────────────────────┐
@@ -142,6 +148,138 @@ def cmd_watch(args: argparse.Namespace) -> int:
         return 0
 
 
+# --- reversible vault: lock / unlock / status ------------------------------
+
+def _keyring():
+    try:
+        import keyring
+
+        return keyring
+    except ImportError:
+        return None
+
+
+def _resolve_vault_path(args) -> Path:
+    from .vault import VAULT_FILENAME
+
+    return Path(args.vault).expanduser() if args.vault else Path.cwd() / VAULT_FILENAME
+
+
+def _get_passphrase(vault_path: Path, *, creating: bool, use_keychain: bool) -> tuple[str, bool]:
+    """Return (passphrase, came_from_keychain).
+
+    Tries the OS keychain first (unless disabled), then prompts. When creating a
+    new vault we confirm the passphrase to avoid lock-out from a typo.
+    """
+
+    if use_keychain:
+        kr = _keyring()
+        if kr is not None:
+            stored = kr.get_password(KEYRING_SERVICE, str(vault_path))
+            if stored:
+                return stored, True
+
+    passphrase = getpass.getpass("Vault passphrase: ")
+    if not passphrase:
+        raise SystemExit("Aborted: empty passphrase.")
+    if creating:
+        if getpass.getpass("Confirm passphrase: ") != passphrase:
+            raise SystemExit("Aborted: passphrases did not match.")
+    return passphrase, False
+
+
+def _maybe_store_passphrase(vault_path: Path, passphrase: str, use_keychain: bool) -> None:
+    if not use_keychain:
+        return
+    kr = _keyring()
+    if kr is not None:
+        try:
+            kr.set_password(KEYRING_SERVICE, str(vault_path), passphrase)
+        except Exception:  # pragma: no cover - keychain may be locked/unavailable
+            pass
+
+
+def cmd_lock(args: argparse.Namespace) -> int:
+    from .vault import Vault, VaultError, lock_text
+
+    vault_path = _resolve_vault_path(args)
+    use_keychain = not args.no_keychain
+    creating = not vault_path.exists()
+
+    try:
+        vault = Vault.create() if creating else Vault.load(vault_path)
+        passphrase, _ = _get_passphrase(vault_path, creating=creating, use_keychain=use_keychain)
+        masker = Masker(Config.load())
+
+        total = 0
+        for file_arg in args.files:
+            path = Path(file_arg)
+            text = path.read_text(encoding="utf-8")
+            result = lock_text(text, passphrase, vault, masker)
+            path.write_text(result.text, encoding="utf-8")
+            total += result.count
+            print(f"locked {path}: {result.count} secret(s) masked")
+
+        vault.save(vault_path)
+        _maybe_store_passphrase(vault_path, passphrase, use_keychain)
+    except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except (OSError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"\nVault: {vault_path}  ({total} token(s) sealed this run)")
+    print("Add the vault to .gitignore so the encrypted secrets stay off your remote.")
+    return 0
+
+
+def cmd_unlock(args: argparse.Namespace) -> int:
+    from .vault import Vault, VaultError, unlock_text
+
+    vault_path = _resolve_vault_path(args)
+    if not vault_path.exists():
+        print(f"error: no vault at {vault_path}", file=sys.stderr)
+        return 1
+    use_keychain = not args.no_keychain
+
+    try:
+        vault = Vault.load(vault_path)
+        passphrase, _ = _get_passphrase(vault_path, creating=False, use_keychain=use_keychain)
+
+        for file_arg in args.files:
+            path = Path(file_arg)
+            text = path.read_text(encoding="utf-8")
+            result = unlock_text(text, passphrase, vault)
+            path.write_text(result.text, encoding="utf-8")
+            print(f"unlocked {path}: {result.count} value(s) restored")
+
+        _maybe_store_passphrase(vault_path, passphrase, use_keychain)
+    except VaultError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except (OSError, FileNotFoundError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_vault_status(args: argparse.Namespace) -> int:
+    from .vault import Vault
+
+    vault_path = _resolve_vault_path(args)
+    print(f"Vault path: {vault_path}")
+    if not vault_path.exists():
+        print("Status: no vault yet (run `privacy-masker lock <file>` to create one)")
+        return 0
+    vault = Vault.load(vault_path)
+    print(f"Status: exists, {len(vault.entries)} sealed value(s)")
+    kr = _keyring()
+    cached = bool(kr and kr.get_password(KEYRING_SERVICE, str(vault_path))) if kr else False
+    print(f"Keychain: {'passphrase cached' if cached else 'not cached (will prompt)'}")
+    return 0
+
+
 def cmd_keywords(args: argparse.Namespace) -> int:
     config = Config.load()
 
@@ -226,6 +364,31 @@ def build_parser() -> argparse.ArgumentParser:
         "-q", "--quiet", action="store_true", help="Suppress banner and per-redaction logs."
     )
     p_watch.set_defaults(func=cmd_watch)
+
+    # Reversible vault commands.
+    def _add_vault_opts(p):
+        p.add_argument("files", nargs="+", help="File(s) to process.")
+        p.add_argument("--vault", help="Vault file path (default: ./.privacy-vault).")
+        p.add_argument(
+            "--no-keychain",
+            action="store_true",
+            help="Always prompt for the passphrase; don't use the OS keychain.",
+        )
+
+    p_lock = sub.add_parser(
+        "lock", help="Reversibly mask secrets in a file (restore later with `unlock`)."
+    )
+    _add_vault_opts(p_lock)
+    p_lock.set_defaults(func=cmd_lock)
+
+    p_unlock = sub.add_parser("unlock", help="Restore secrets previously locked in a file.")
+    _add_vault_opts(p_unlock)
+    p_unlock.set_defaults(func=cmd_unlock)
+
+    p_vstatus = sub.add_parser("vault-status", help="Show the vault location and contents.")
+    p_vstatus.add_argument("--vault", help="Vault file path (default: ./.privacy-vault).")
+    p_vstatus.add_argument("--no-keychain", action="store_true", help=argparse.SUPPRESS)
+    p_vstatus.set_defaults(func=cmd_vault_status)
 
     p_kw = sub.add_parser("keywords", help="Manage the custom keyword redaction list.")
     kw_sub = p_kw.add_subparsers(dest="action", required=True)

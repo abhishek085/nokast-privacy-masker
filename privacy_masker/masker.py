@@ -34,6 +34,7 @@ _CATEGORY_LABELS = {
     patterns.PHONE: ("phone number", "phone numbers"),
     patterns.SSN: ("SSN", "SSNs"),
     patterns.CREDIT_CARD: ("card number", "card numbers"),
+    patterns.IP: ("IP address", "IP addresses"),
     patterns.KEYWORD: ("keyword", "keywords"),
     patterns.PERSON: ("name", "names"),
     patterns.LOCATION: ("location", "locations"),
@@ -135,12 +136,13 @@ class Masker:
         patterns.SSN: 2,
         patterns.KEYWORD: 3,
         patterns.EMAIL: 4,
-        patterns.PHONE: 5,
+        patterns.IP: 5,
+        patterns.PHONE: 6,
         # NER (contextual) findings yield to structured regex matches on a tie.
-        patterns.PERSON: 6,
-        patterns.LOCATION: 7,
-        patterns.ORG: 8,
-        patterns.DATE: 9,
+        patterns.PERSON: 7,
+        patterns.LOCATION: 8,
+        patterns.ORG: 9,
+        patterns.DATE: 10,
     }
 
     @classmethod
@@ -155,7 +157,7 @@ class Masker:
 
         ordered = sorted(
             findings,
-            key=lambda f: (f.start, -(f.end - f.start), cls._PRIORITY.get(f.category, 9)),
+            key=lambda f: (f.start, -(f.end - f.start), cls._PRIORITY.get(f.category, 99)),
         )
         kept: list[Finding] = []
         last_end = -1
@@ -165,13 +167,23 @@ class Masker:
                 last_end = finding.end
         return kept
 
+    def find(self, text: str) -> list[Finding]:
+        """Return the resolved, non-overlapping sensitive spans in ``text``.
+
+        This is the detection half of :meth:`mask`, exposed so other consumers
+        (e.g. the reversible vault) can reuse the exact same detectors and
+        overlap resolution without committing to a particular replacement.
+        Findings come back in ascending, non-overlapping order.
+        """
+
+        if not text:
+            return []
+        return self._resolve_overlaps(self._collect(text))
+
     def mask(self, text: str) -> MaskResult:
         """Return a :class:`MaskResult` with sensitive spans replaced."""
 
-        if not text:
-            return MaskResult(text=text, findings=[])
-
-        findings = self._resolve_overlaps(self._collect(text))
+        findings = self.find(text)
         if not findings:
             return MaskResult(text=text, findings=[])
 

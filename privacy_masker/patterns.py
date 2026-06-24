@@ -27,6 +27,7 @@ SECRET = "secret"
 PHONE = "phone"
 SSN = "ssn"
 CREDIT_CARD = "credit_card"
+IP = "ip"
 # -- user-supplied dictionary --
 KEYWORD = "keyword"
 # -- NER-detected categories (contextual; need the [ner] extra) --
@@ -36,7 +37,7 @@ ORG = "org"
 DATE = "date"
 
 # Categories that have built-in regex patterns.
-REGEX_CATEGORIES = (EMAIL, SECRET, PHONE, SSN, CREDIT_CARD)
+REGEX_CATEGORIES = (EMAIL, SECRET, PHONE, SSN, CREDIT_CARD, IP)
 # Categories resolved by the spaCy NER detector.
 NER_CATEGORIES = (PERSON, LOCATION, ORG, DATE)
 
@@ -212,6 +213,14 @@ _CREDIT_CARD = Pattern(
     validate=luhn_valid,
 )
 
+# IPv4 addresses with octet validation (each 0-255), so version strings like
+# "1.2.3.4" still match but "999.1.1.1" doesn't. (IPv6 is a future addition.)
+_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+_IPV4 = Pattern(
+    category=IP,
+    regex=re.compile(rf"\b{_OCTET}(?:\.{_OCTET}){{3}}\b"),
+)
+
 
 # Built-in patterns grouped by category, so callers can enable/disable whole
 # categories cheaply.
@@ -221,6 +230,7 @@ BUILTIN_PATTERNS: dict[str, list[Pattern]] = {
     PHONE: [_PHONE],
     SSN: [_SSN],
     CREDIT_CARD: [_CREDIT_CARD],
+    IP: [_IPV4],
 }
 
 

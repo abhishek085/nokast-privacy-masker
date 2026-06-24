@@ -55,6 +55,7 @@ work: in the terminal and the clipboard.
 | **Phone numbers** | `(555) 123-4567`, `+1 555-123-4567` → `[PHONE]` |
 | **Social Security numbers** | `123-45-6789` → `[SSN]` |
 | **Credit cards** | 13–19 digit numbers that pass the Luhn check → `[CARD]` |
+| **IP addresses** | octet-validated IPv4, e.g. `192.168.1.50` → `[IP]` |
 | **Custom keywords** | Your own list of client names / project codewords → `[REDACTED]` |
 
 **Contextual PII** (spaCy NER, the optional `[ner]` extra) — catches data that has
@@ -89,11 +90,14 @@ pip install -e '.[clipboard]'
 # With contextual PII detection (names, locations, …):
 pip install -e '.[ner]'
 python -m spacy download en_core_web_sm   # one-time, ~12 MB, local
+
+# With reversible lock/unlock for files (encrypted vault):
+pip install -e '.[vault]'
 ```
 
-Requires Python 3.9+. Without the `[ner]` extra everything still works — the
-pattern-based categories run as normal and PII categories are simply inert (the CLI
-tells you how to enable them).
+Requires Python 3.9+. Without the extras everything still works — the
+pattern-based categories run as normal and the optional features tell you how to
+enable them.
 
 ---
 
@@ -139,6 +143,33 @@ privacy-masker keywords remove "Project Titan"
 privacy-masker config --init
 ```
 
+### 6. Reversible masking for code files — `lock` / `unlock` 🔐
+
+Unlike `mask` (one-way), `lock` **reversibly** masks secrets *in a file* and seals the
+originals in an encrypted vault. Point a coding assistant (Cursor, Claude Code, …) at
+the locked file and it sees only tokens — restore the real values with your passphrase
+when you need to run the code.
+
+```bash
+privacy-masker lock app.py        # 192.168.1.50 -> PMV_00000001, sealed in .privacy-vault
+#   (prompts for a passphrase the first time; cached in the OS keychain after)
+# ... share / commit / let an assistant read app.py — the real values are gone ...
+privacy-masker unlock app.py      # restores the originals (needs the passphrase)
+privacy-masker vault-status       # show the vault location and how many values are sealed
+```
+
+How it works: each secret becomes a unique token (`PMV_…`), and the original is encrypted
+with **Fernet** (AES) under a key stretched from your passphrase via **scrypt**. The vault
+file holds *only* ciphertext.
+
+> **Heads up — a locked file won't *run*** (the real values aren't in it). `lock` is a
+> toggle for sharing/committing; `unlock` to execute. Add `.privacy-vault` to your
+> `.gitignore`.
+>
+> **Threat model:** this stops secrets leaking to a *cloud AI*. It is **not** protection
+> against a local attacker who has both the file and the vault — use a strong passphrase,
+> and keep secrets out of source where you can.
+
 ---
 
 ## Configuration
@@ -149,13 +180,14 @@ Config lives at
 
 ```json
 {
-  "enabled_categories": ["email", "secret", "phone", "ssn", "credit_card", "keyword", "person", "location"],
+  "enabled_categories": ["email", "secret", "phone", "ssn", "credit_card", "ip", "keyword", "person", "location"],
   "replacements": {
     "email": "[EMAIL]",
     "secret": "[SECRET]",
     "phone": "[PHONE]",
     "ssn": "[SSN]",
     "credit_card": "[CARD]",
+    "ip": "[IP]",
     "keyword": "[REDACTED]",
     "person": "[NAME]",
     "location": "[LOCATION]",
@@ -194,10 +226,12 @@ privacy_masker/
 ├── patterns.py    # Regex detectors per category + Luhn validation
 ├── detectors.py   # Detector protocol + spaCy NER detector (contextual PII)
 ├── masker.py      # The engine: collects findings, resolves overlaps, redacts
+├── vault.py       # Reversible lock/unlock: scrypt + Fernet encrypted vault
 ├── config.py      # Load/save user config (categories, tokens, keywords)
-└── cli.py         # `privacy-masker` CLI (mask · watch · keywords · config)
+└── cli.py         # `privacy-masker` CLI (mask · watch · lock · unlock · keywords)
 tests/
-└── test_masker.py
+├── test_masker.py
+└── test_vault.py
 assets/
 └── logo.svg
 ```

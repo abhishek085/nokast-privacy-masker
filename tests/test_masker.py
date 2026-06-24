@@ -104,6 +104,18 @@ def test_masks_ssn(masker):
     assert result.text == "SSN [SSN] on file"
 
 
+@pytest.mark.parametrize("ip", ["192.168.1.50", "10.0.0.1", "255.255.255.0", "8.8.8.8"])
+def test_masks_ipv4(masker, ip):
+    result = masker.mask(f"host = {ip}")
+    assert result.text == "host = [IP]"
+
+
+def test_ignores_invalid_ipv4(masker):
+    # 999 is not a valid octet -> not an IP.
+    result = masker.mask("not an ip 999.1.1.1 here")
+    assert "[IP]" not in result.text
+
+
 def test_masks_valid_credit_card(masker):
     # A Luhn-valid Visa test number.
     result = masker.mask("card 4111 1111 1111 1111 ok")
