@@ -21,6 +21,9 @@ CLI can nudge the user.
 
 from __future__ import annotations
 
+import math
+import re
+from collections import Counter
 from typing import Iterable, Protocol, runtime_checkable
 
 from . import patterns
@@ -143,4 +146,67 @@ class PresidioNerDetector:
                     end=r.end,
                     category=category,
                     text=text[r.start:r.end],
+                )
+
+
+# --- entropy-based catch-all for opaque secrets ----------------------------
+
+# Candidate token: a run of secret-ish characters long enough to be a key. We
+# look at these and keep only the ones that *look random* (high Shannon entropy
+# + mixed character classes), so normal words, hashes and identifiers are spared.
+# '=' is allowed only as trailing base64 padding -- never internally -- so we
+# don't span across a `KEY=value` boundary and swallow the key name.
+_TOKEN_RE = re.compile(r"[A-Za-z0-9+/_\-]{24,}={0,2}")
+
+
+def shannon_entropy(s: str) -> float:
+    """Bits-of-entropy per character (0 for uniform strings, ~6 for random b64)."""
+
+    if not s:
+        return 0.0
+    counts = Counter(s)
+    n = len(s)
+    return -sum((c / n) * math.log2(c / n) for c in counts.values())
+
+
+class EntropySecretDetector:
+    """Flag long, high-entropy, mixed-class tokens as secrets.
+
+    This catches opaque secrets whose *name* gives no hint (e.g. a 40-char base64
+    string assigned to ``FOO``) and which match no known vendor format -- the long
+    tail that pattern matching misses. It is deliberately conservative to avoid
+    masking git SHAs, UUIDs and ordinary identifiers: a token must be >= 24 chars,
+    have high entropy, and either span three character classes (lower/upper/digit)
+    or two classes plus a base64 symbol. Pure-hex digests (one or two classes, no
+    symbol) are intentionally *not* matched.
+    """
+
+    def __init__(self, min_length: int = 24, min_entropy: float = 3.6):
+        self.min_length = min_length
+        self.min_entropy = min_entropy
+
+    def _looks_secret(self, token: str) -> bool:
+        if len(token) < self.min_length:
+            return False
+        has_lower = any(c.islower() for c in token)
+        has_upper = any(c.isupper() for c in token)
+        has_digit = any(c.isdigit() for c in token)
+        has_symbol = any(c in "+/=_-" for c in token)
+        classes = has_lower + has_upper + has_digit
+        # Require strong mixing so hashes/identifiers slip through.
+        if not (classes >= 3 or (classes >= 2 and has_symbol)):
+            return False
+        return shannon_entropy(token) >= self.min_entropy
+
+    def finditer(self, text: str) -> Iterable[Finding]:
+        if not text:
+            return
+        for match in _TOKEN_RE.finditer(text):
+            token = match.group(0)
+            if self._looks_secret(token):
+                yield Finding(
+                    start=match.start(),
+                    end=match.end(),
+                    category=patterns.SECRET,
+                    text=token,
                 )

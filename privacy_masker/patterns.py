@@ -161,12 +161,35 @@ _SECRET_PATTERNS = [
     Pattern(category=SECRET, regex=re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
     # Slack tokens.
     Pattern(category=SECRET, regex=re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b")),
-    # Stripe keys.
+    # Stripe keys + webhook signing secret.
     Pattern(category=SECRET, regex=re.compile(r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{16,}\b")),
+    Pattern(category=SECRET, regex=re.compile(r"\bwhsec_[A-Za-z0-9]{32,}\b")),
+    # GitLab personal access token.
+    Pattern(category=SECRET, regex=re.compile(r"\bglpat-[A-Za-z0-9_\-]{20}\b")),
+    # Google OAuth client secret.
+    Pattern(category=SECRET, regex=re.compile(r"\bGOCSPX-[A-Za-z0-9_\-]{28}\b")),
+    # SendGrid API key.
+    Pattern(category=SECRET, regex=re.compile(r"\bSG\.[A-Za-z0-9_\-]{22}\.[A-Za-z0-9_\-]{43}\b")),
+    # Twilio account SID and API key.
+    Pattern(category=SECRET, regex=re.compile(r"\b(?:AC|SK)[a-f0-9]{32}\b")),
+    # npm / PyPI / Hugging Face / DigitalOcean tokens.
+    Pattern(category=SECRET, regex=re.compile(r"\bnpm_[A-Za-z0-9]{36}\b")),
+    Pattern(category=SECRET, regex=re.compile(r"\bpypi-[A-Za-z0-9_\-]{16,}\b")),
+    Pattern(category=SECRET, regex=re.compile(r"\bhf_[A-Za-z0-9]{34,}\b")),
+    Pattern(category=SECRET, regex=re.compile(r"\bdop_v1_[a-f0-9]{64}\b")),
+    # Telegram bot token.
+    Pattern(category=SECRET, regex=re.compile(r"\b\d{8,10}:[A-Za-z0-9_\-]{35}\b")),
     # JSON Web Tokens.
     Pattern(
         category=SECRET,
         regex=re.compile(r"\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b"),
+    ),
+    # Credentials embedded in a connection string / URL: redact just the
+    # password. Common in .env files: postgres://user:s3cr3t@host/db
+    Pattern(
+        category=SECRET,
+        regex=re.compile(r"\b[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s:/@]*:(?P<value>[^\s:/@]+)@"),
+        group="value",
     ),
     # "Authorization: Bearer <token>" -- redact just the token.
     Pattern(
@@ -174,13 +197,23 @@ _SECRET_PATTERNS = [
         regex=re.compile(r"\bBearer\s+(?P<value>[A-Za-z0-9._\-]{8,})", re.IGNORECASE),
         group="value",
     ),
-    # Generic assignment of a secret-ish key: password = hunter2, api_key: abc123.
-    # Only the value is redacted so the key name stays readable.
+    # Generic assignment of a secret-ish key: password = hunter2, API_KEY: abc123,
+    # DJANGO_SECRET_KEY="...". Only the value is redacted so the key name stays
+    # readable. The key may be prefixed (e.g. STRIPE_SECRET_KEY) -- we anchor on
+    # the secret-ish suffix. Covers most .env style declarations.
     Pattern(
         category=SECRET,
         regex=re.compile(
-            r"(?i)\b(?:password|passwd|pwd|secret|token|api[_\-]?key|access[_\-]?key|"
-            r"client[_\-]?secret|auth)\b\s*[:=]\s*"
+            r"(?i)(?:^|[^A-Za-z0-9])"                       # start or non-word before
+            r"[A-Z0-9_]*?"                                  # optional prefix (DJANGO_, STRIPE_)
+            r"(?:passwd|password|passphrase|pwd|"
+            r"secret[_\-]?key|secret|"
+            r"api[_\-]?key|apikey|access[_\-]?key|"
+            r"access[_\-]?token|refresh[_\-]?token|id[_\-]?token|auth[_\-]?token|"
+            r"private[_\-]?key|encryption[_\-]?key|"
+            r"client[_\-]?secret|signing[_\-]?secret|webhook[_\-]?secret|"
+            r"account[_\-]?sid|credentials?|token|auth|dsn)"
+            r"\s*[:=]\s*"
             r"(?P<value>(?:\"[^\"]+\"|'[^']+'|\S+))",
         ),
         group="value",

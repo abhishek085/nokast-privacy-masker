@@ -23,7 +23,7 @@ from typing import Iterable
 
 from . import detectors, patterns
 from .config import Config
-from .detectors import NerUnavailable, PresidioNerDetector
+from .detectors import EntropySecretDetector, NerUnavailable, PresidioNerDetector
 from .patterns import Finding, Pattern
 
 
@@ -102,6 +102,11 @@ class Masker:
             for keyword in self.config.keywords:
                 if keyword.strip():
                     active.append(patterns.keyword_pattern(keyword))
+
+        # Entropy catch-all rides along with the secret category, to catch opaque
+        # random secrets that match no known vendor format.
+        if patterns.SECRET in self.config.enabled_categories:
+            active.append(EntropySecretDetector())
 
         # Optional NER detector for contextual PII (names, places, ...).
         self.ner_status = "off"

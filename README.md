@@ -51,7 +51,7 @@ work: in the terminal and the clipboard.
 | Category | Examples |
 | --- | --- |
 | **Emails** | `jane.doe@corp.com` → `[EMAIL]` |
-| **API keys & passwords** | OpenAI/Anthropic `sk-…`, AWS `AKIA…`, GitHub `ghp_…`, Slack, Stripe, Google, JWTs, PEM private keys, `password: …` / `api_key = …` assignments, `Bearer …` tokens |
+| **API keys & passwords** | OpenAI/Anthropic `sk-…`, AWS `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Stripe (incl. `whsec_`), Google/`GOCSPX-`, SendGrid, Twilio, npm, PyPI, Hugging Face, DigitalOcean, Telegram, JWTs, PEM private keys, `Bearer …` tokens, `KEY=value` assignments (incl. prefixed names like `DJANGO_SECRET_KEY`), credentials in connection strings (`postgres://user:pass@…`), and a **high-entropy catch-all** for opaque random secrets |
 | **Phone numbers** | `(555) 123-4567`, `+1 555-123-4567` → `[PHONE]` |
 | **Social Security numbers** | `123-45-6789` → `[SSN]` |
 | **Credit cards** | 13–19 digit numbers that pass the Luhn check → `[CARD]` |
