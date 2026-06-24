@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="Nokast Privacy Hook" width="560">
+  <img src="https://raw.githubusercontent.com/abhishek085/nokast-privacy-masker/main/assets/logo.svg" alt="Nokast Privacy Hook" width="560">
 </p>
 
 <h1 align="center">🛡️ Privacy Hook</h1>
