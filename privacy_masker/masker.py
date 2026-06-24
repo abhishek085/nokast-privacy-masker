@@ -17,13 +17,14 @@ Usage::
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
 
 from . import detectors, patterns
 from .config import Config
-from .detectors import NerUnavailable, SpacyNerDetector
+from .detectors import EntropySecretDetector, NerUnavailable, PresidioNerDetector
 from .patterns import Finding, Pattern
 
 
@@ -41,6 +42,63 @@ _CATEGORY_LABELS = {
     patterns.ORG: ("organisation", "organisations"),
     patterns.DATE: ("date", "dates"),
 }
+
+
+# A KEY=VALUE assignment line (optionally `export KEY=...`), capturing the value
+# (quoted or bare) and ignoring any trailing `# comment`. Used by dotenv mode.
+_ENV_ASSIGN = re.compile(
+    r"^[ \t]*(?:export[ \t]+)?[A-Za-z_][A-Za-z0-9_.]*[ \t]*=[ \t]*"
+    r"(?P<val>\"[^\"]*\"|'[^']*'|[^#\r\n]*?)"
+    r"[ \t]*(?:#.*)?[\r\n]*$"
+)
+
+# Values that are clearly not secrets and stay readable even in dotenv mode.
+_ENV_SKIP_WORDS = {"true", "false", "yes", "no", "on", "off", "null", "none", ""}
+
+
+def _is_number(s: str) -> bool:
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _should_mask_env_value(value: str) -> bool:
+    inner = value.strip()
+    if len(inner) >= 2 and inner[0] in "\"'" and inner[-1] == inner[0]:
+        inner = inner[1:-1]
+    inner = inner.strip()
+    if inner.lower() in _ENV_SKIP_WORDS or _is_number(inner):
+        return False
+    return True
+
+
+def dotenv_value_findings(text: str) -> list["Finding"]:
+    """Find the value span of every ``KEY=VALUE`` line worth masking.
+
+    In a ``.env`` file the values essentially *are* the secrets, so this masks
+    them all regardless of the key name -- except obvious non-secrets (booleans,
+    numbers, empty). Comment lines and the key names themselves are left intact.
+    """
+
+    findings: list[Finding] = []
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped and not stripped.startswith("#"):
+            match = _ENV_ASSIGN.match(line)
+            if match and _should_mask_env_value(match.group("val")):
+                findings.append(
+                    Finding(
+                        start=offset + match.start("val"),
+                        end=offset + match.end("val"),
+                        category=patterns.SECRET,
+                        text=match.group("val"),
+                    )
+                )
+        offset += len(line)
+    return findings
 
 
 @dataclass
@@ -86,9 +144,9 @@ class Masker:
         """Collect the active detectors for the current config.
 
         Sets ``self._detectors`` (regex patterns + custom keywords + an optional
-        spaCy NER detector) and ``self.ner_status`` -- one of ``"off"`` (no NER
+        Presidio NER detector) and ``self.ner_status`` -- one of ``"off"`` (no NER
         categories enabled), ``"active"``, or a ``NerUnavailable.reason``
-        (``"no_spacy"`` / ``"no_model"``) so the CLI can guide the user.
+        (``"no_presidio"`` / ``"no_model"``) so the CLI can guide the user.
         """
 
         active: list = []
@@ -103,12 +161,17 @@ class Masker:
                 if keyword.strip():
                     active.append(patterns.keyword_pattern(keyword))
 
+        # Entropy catch-all rides along with the secret category, to catch opaque
+        # random secrets that match no known vendor format.
+        if patterns.SECRET in self.config.enabled_categories:
+            active.append(EntropySecretDetector())
+
         # Optional NER detector for contextual PII (names, places, ...).
         self.ner_status = "off"
         enabled_ner = self.config.enabled_categories & set(patterns.NER_CATEGORIES)
         if enabled_ner:
             try:
-                active.append(SpacyNerDetector(enabled_ner))
+                active.append(PresidioNerDetector(enabled_ner))
                 self.ner_status = "active"
             except NerUnavailable as exc:
                 # Regex masking still works; record why NER is inert.
@@ -167,23 +230,30 @@ class Masker:
                 last_end = finding.end
         return kept
 
-    def find(self, text: str) -> list[Finding]:
+    def find(self, text: str, dotenv: bool = False) -> list[Finding]:
         """Return the resolved, non-overlapping sensitive spans in ``text``.
 
         This is the detection half of :meth:`mask`, exposed so other consumers
         (e.g. the reversible vault) can reuse the exact same detectors and
         overlap resolution without committing to a particular replacement.
         Findings come back in ascending, non-overlapping order.
+
+        When ``dotenv`` is true, every ``KEY=VALUE`` value is also masked (the
+        whole-file ``.env`` strategy), on top of the usual detectors which still
+        catch anything in comments.
         """
 
         if not text:
             return []
-        return self._resolve_overlaps(self._collect(text))
+        findings = self._collect(text)
+        if dotenv:
+            findings = findings + dotenv_value_findings(text)
+        return self._resolve_overlaps(findings)
 
-    def mask(self, text: str) -> MaskResult:
+    def mask(self, text: str, dotenv: bool = False) -> MaskResult:
         """Return a :class:`MaskResult` with sensitive spans replaced."""
 
-        findings = self.find(text)
+        findings = self.find(text, dotenv=dotenv)
         if not findings:
             return MaskResult(text=text, findings=[])
 

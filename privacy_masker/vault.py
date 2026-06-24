@@ -173,16 +173,23 @@ class LockResult:
     count: int
 
 
-def lock_text(text: str, passphrase: str, vault: Vault, masker: Optional[Masker] = None) -> LockResult:
+def lock_text(
+    text: str,
+    passphrase: str,
+    vault: Vault,
+    masker: Optional[Masker] = None,
+    dotenv: bool = False,
+) -> LockResult:
     """Replace detected secrets in ``text`` with tokens, sealing originals in ``vault``.
 
     Identical values within a single call collapse to the same token (so a key
-    repeated twice stays consistent). Returns the locked text and how many spans
-    were replaced.
+    repeated twice stays consistent). When ``dotenv`` is true, every ``KEY=VALUE``
+    value is locked (the whole-file ``.env`` strategy). Returns the locked text and
+    how many spans were replaced.
     """
 
     masker = masker or Masker()
-    findings = masker.find(text)
+    findings = masker.find(text, dotenv=dotenv)
     if not findings:
         return LockResult(text=text, count=0)
 

@@ -42,6 +42,11 @@ _SECRET_FIXTURES = [
     "AKIA" + "IOSFODNN7" + "EXAMPLE",            # AWS access key id
     "ghp_" + "a" * 36,                            # GitHub PAT
     "xoxb-" + "1234567890-" + "abcdefghijklmnop", # Slack bot token
+    "glpat-" + "ABCdef12345678901234",           # GitLab PAT
+    "GOCSPX-" + "abcdEFGH1234567890ijklMNOP12",   # Google OAuth client secret
+    "npm_" + "ABCdef123456789012345678901234567890",  # npm token
+    "hf_" + "ABCdefGHIjklMNOpqrSTUvwx1234567890ABCD",  # Hugging Face
+    "whsec_" + "ABCdef1234567890ABCdef1234567890ab",   # Stripe webhook secret
 ]
 
 
@@ -50,6 +55,91 @@ def test_masks_known_secret_formats(masker, secret):
     result = masker.mask(f"key is {secret} end")
     assert "[SECRET]" in result.text
     assert any(f.category == patterns.SECRET for f in result.findings)
+
+
+def test_masks_credentials_in_connection_string(masker):
+    # Common .env shape with an IP host: the URL-credentials detector redacts the
+    # password (the host, being an IP, is handled separately by the IP detector).
+    result = masker.mask("DATABASE_URL=postgres://admin:s3cr3tp4ss@10.0.0.5:5432/app")
+    assert "s3cr3tp4ss" not in result.text   # password gone
+    assert "[SECRET]" in result.text
+
+
+def test_masks_password_in_url_with_domain_host(masker):
+    # With a domain host the email detector may absorb pass@host -- either way the
+    # password must not survive in the output.
+    result = masker.mask("conn = postgres://admin:s3cr3tp4ss@db.example.com/app")
+    assert "s3cr3tp4ss" not in result.text
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "DJANGO_SECRET_KEY=abc123def456ghi",
+        "STRIPE_SECRET_KEY = 'value-here-xyz'",
+        "MY_REFRESH_TOKEN: tokvalue123",
+        "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMIabcd",
+        "app.dsn = https://key@sentry.io/123",
+    ],
+)
+def test_masks_prefixed_env_assignments(masker, line):
+    result = masker.mask(line)
+    assert "[SECRET]" in result.text
+
+
+def test_entropy_catches_unnamed_opaque_secret(masker):
+    # A random-looking value assigned to a non-hinting name -> caught by entropy.
+    result = masker.mask("FOO = Xa9Kf2Lp7Qz3Wm8Rb5Tn1Yc4Vd6Hg0Js")
+    assert "[SECRET]" in result.text
+
+
+def test_entropy_ignores_git_sha(masker):
+    # A 40-char hex git SHA should NOT be treated as a secret.
+    result = masker.mask("commit 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b")
+    assert "[SECRET]" not in result.text
+
+
+def test_entropy_ignores_normal_prose(masker):
+    text = "The quick brown fox jumps over the lazy dog repeatedly today."
+    assert masker.mask(text).text == text
+
+
+# -- dotenv mode ------------------------------------------------------------
+
+def test_dotenv_masks_all_values_keeps_keys(masker):
+    env = (
+        "# config\n"
+        "LOG_LEVEL=info\n"
+        "APP_PORT=8080\n"
+        "DEBUG=true\n"
+        "API_BASE=https://api.example.com\n"
+        'NAME="Jane Doe"\n'
+    )
+    out = masker.mask(env, dotenv=True).text
+    # Numbers / booleans / comments stay; everything else is masked, keys intact.
+    assert "APP_PORT=8080" in out
+    assert "DEBUG=true" in out
+    assert "# config" in out
+    assert "LOG_LEVEL=[SECRET]" in out          # opaque-but-not-a-number value
+    assert "API_BASE=[SECRET]" in out
+    assert "NAME=[SECRET]" in out
+    assert "Jane Doe" not in out
+
+
+def test_dotenv_export_prefix(masker):
+    out = masker.mask("export SECRET_THING=abcdef\n", dotenv=True).text
+    assert out.strip() == "export SECRET_THING=[SECRET]"
+
+
+def test_dotenv_strips_inline_comment_but_keeps_it(masker):
+    out = masker.mask("TOKEN=abcdef  # my token\n", dotenv=True).text
+    assert "abcdef" not in out
+    assert "# my token" in out
+
+
+def test_non_dotenv_leaves_plain_assignments(masker):
+    # Without dotenv mode, a non-secret-named value is untouched.
+    assert masker.mask("LOG_LEVEL=info").text == "LOG_LEVEL=info"
 
 
 def test_redacts_only_value_in_assignment(masker):
@@ -224,11 +314,11 @@ def test_ner_status_off_when_no_ner_categories():
 
 @pytest.fixture(scope="module")
 def ner_masker():
-    pytest.importorskip("spacy")
-    from privacy_masker.detectors import NerUnavailable, load_model
+    pytest.importorskip("presidio_analyzer")
+    from privacy_masker.detectors import NerUnavailable, load_analyzer
 
     try:
-        load_model()
+        load_analyzer()
     except NerUnavailable as exc:
         pytest.skip(str(exc))
     cfg = Config(

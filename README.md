@@ -51,15 +51,15 @@ work: in the terminal and the clipboard.
 | Category | Examples |
 | --- | --- |
 | **Emails** | `jane.doe@corp.com` → `[EMAIL]` |
-| **API keys & passwords** | OpenAI/Anthropic `sk-…`, AWS `AKIA…`, GitHub `ghp_…`, Slack, Stripe, Google, JWTs, PEM private keys, `password: …` / `api_key = …` assignments, `Bearer …` tokens |
+| **API keys & passwords** | OpenAI/Anthropic `sk-…`, AWS `AKIA…`, GitHub `ghp_…`, GitLab, Slack, Stripe (incl. `whsec_`), Google/`GOCSPX-`, SendGrid, Twilio, npm, PyPI, Hugging Face, DigitalOcean, Telegram, JWTs, PEM private keys, `Bearer …` tokens, `KEY=value` assignments (incl. prefixed names like `DJANGO_SECRET_KEY`), credentials in connection strings (`postgres://user:pass@…`), and a **high-entropy catch-all** for opaque random secrets |
 | **Phone numbers** | `(555) 123-4567`, `+1 555-123-4567` → `[PHONE]` |
 | **Social Security numbers** | `123-45-6789` → `[SSN]` |
 | **Credit cards** | 13–19 digit numbers that pass the Luhn check → `[CARD]` |
 | **IP addresses** | octet-validated IPv4, e.g. `192.168.1.50` → `[IP]` |
 | **Custom keywords** | Your own list of client names / project codewords → `[REDACTED]` |
 
-**Contextual PII** (spaCy NER, the optional `[ner]` extra) — catches data that has
-*no fixed shape* and can't be matched by regex:
+**Contextual PII** (Microsoft Presidio NER, the optional `[ner]` extra) — catches data
+that has *no fixed shape* and can't be matched by regex:
 
 | Category | Examples | Default |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ tends to over-redact ordinary prose. Enable them in the config when you need the
 Placeholders are **labelled** (`[EMAIL]`, not `XXX`) so the AI still understands the
 shape of your text — it knows a name *was* there without ever seeing it. Every token,
 category, and the keyword list is configurable. Everything runs **fully locally**,
-including the NER model.
+including the Presidio/spaCy NER model.
 
 ---
 
@@ -108,6 +108,10 @@ enable them.
 ```bash
 echo "ping jane@corp.com, pw: hunter2" | privacy-masker mask
 # -> ping [EMAIL], pw: [SECRET]
+
+# .env mode: mask *every* KEY=VALUE value (skips numbers/booleans/comments)
+privacy-masker mask --dotenv < .env
+# DATABASE_URL=[SECRET]    OPENAI_API_KEY=[SECRET]    APP_PORT=8080
 ```
 
 ### 2. Mask your clipboard in place
@@ -156,6 +160,8 @@ privacy-masker lock app.py        # 192.168.1.50 -> PMV_00000001, sealed in .pri
 # ... share / commit / let an assistant read app.py — the real values are gone ...
 privacy-masker unlock app.py      # restores the originals (needs the passphrase)
 privacy-masker vault-status       # show the vault location and how many values are sealed
+
+privacy-masker lock .env          # .env files: every value is locked automatically
 ```
 
 How it works: each secret becomes a unique token (`PMV_…`), and the original is encrypted
@@ -210,7 +216,7 @@ detectors coexist cleanly:
 
 1. **Collect** — every active *detector* scans the text and reports *where* sensitive
    data is, as `(start, end, category)` spans. A regex `Pattern` is one detector; the
-   spaCy NER model is another. Neither touches the text yet.
+   Presidio NER engine is another. Neither touches the text yet.
 2. **Resolve overlaps** — spans are sorted and de-conflicted (most-sensitive label
    wins) so two detectors matching the same text never corrupt the output.
 3. **Splice** — a single left-to-right pass swaps each surviving span for its token.
@@ -224,7 +230,7 @@ dictionary/gazetteer, a different NER model, even a local LLM) is just implement
 ```
 privacy_masker/
 ├── patterns.py    # Regex detectors per category + Luhn validation
-├── detectors.py   # Detector protocol + spaCy NER detector (contextual PII)
+├── detectors.py   # Detector protocol + Presidio NER detector (contextual PII)
 ├── masker.py      # The engine: collects findings, resolves overlaps, redacts
 ├── vault.py       # Reversible lock/unlock: scrypt + Fernet encrypted vault
 ├── config.py      # Load/save user config (categories, tokens, keywords)
