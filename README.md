@@ -108,6 +108,10 @@ enable them.
 ```bash
 echo "ping jane@corp.com, pw: hunter2" | privacy-masker mask
 # -> ping [EMAIL], pw: [SECRET]
+
+# .env mode: mask *every* KEY=VALUE value (skips numbers/booleans/comments)
+privacy-masker mask --dotenv < .env
+# DATABASE_URL=[SECRET]    OPENAI_API_KEY=[SECRET]    APP_PORT=8080
 ```
 
 ### 2. Mask your clipboard in place
@@ -156,6 +160,8 @@ privacy-masker lock app.py        # 192.168.1.50 -> PMV_00000001, sealed in .pri
 # ... share / commit / let an assistant read app.py — the real values are gone ...
 privacy-masker unlock app.py      # restores the originals (needs the passphrase)
 privacy-masker vault-status       # show the vault location and how many values are sealed
+
+privacy-masker lock .env          # .env files: every value is locked automatically
 ```
 
 How it works: each secret becomes a unique token (`PMV_…`), and the original is encrypted

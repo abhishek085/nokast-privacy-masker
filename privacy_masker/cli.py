@@ -69,19 +69,21 @@ def cmd_mask(args: argparse.Namespace) -> int:
     if hint:
         print(f"note: PII detection is enabled but inactive. {hint}", file=sys.stderr)
 
+    dotenv = getattr(args, "dotenv", False)
+
     if args.clipboard:
         pyperclip = _import_pyperclip()
         if pyperclip is None:
             return 1
         source = pyperclip.paste()
-        result = masker.mask(source)
+        result = masker.mask(source, dotenv=dotenv)
         pyperclip.copy(result.text)
         summary = result.summary() or "nothing"
         print(f"Masked clipboard: redacted {summary}.", file=sys.stderr)
         return 0
 
     source = sys.stdin.read()
-    result = masker.mask(source)
+    result = masker.mask(source, dotenv=dotenv)
     sys.stdout.write(result.text)
     if result.changed and not sys.stdout.isatty():
         # Keep stdout clean for piping; report to stderr.
@@ -165,6 +167,13 @@ def _resolve_vault_path(args) -> Path:
     return Path(args.vault).expanduser() if args.vault else Path.cwd() / VAULT_FILENAME
 
 
+def _is_dotenv(path: Path) -> bool:
+    """True for .env / .env.local / prod.env style filenames."""
+
+    name = path.name
+    return name == ".env" or name.startswith(".env.") or name.endswith(".env")
+
+
 def _get_passphrase(vault_path: Path, *, creating: bool, use_keychain: bool) -> tuple[str, bool]:
     """Return (passphrase, came_from_keychain).
 
@@ -215,10 +224,13 @@ def cmd_lock(args: argparse.Namespace) -> int:
         for file_arg in args.files:
             path = Path(file_arg)
             text = path.read_text(encoding="utf-8")
-            result = lock_text(text, passphrase, vault, masker)
+            # .env files: mask every value (auto-detected, or forced with --dotenv).
+            dotenv = args.dotenv or _is_dotenv(path)
+            result = lock_text(text, passphrase, vault, masker, dotenv=dotenv)
             path.write_text(result.text, encoding="utf-8")
             total += result.count
-            print(f"locked {path}: {result.count} secret(s) masked")
+            label = " (dotenv: all values)" if dotenv else ""
+            print(f"locked {path}: {result.count} secret(s) masked{label}")
 
         vault.save(vault_path)
         _maybe_store_passphrase(vault_path, passphrase, use_keychain)
@@ -348,6 +360,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Read from and write back to the system clipboard.",
     )
+    p_mask.add_argument(
+        "--dotenv",
+        action="store_true",
+        help="Treat input as a .env file and mask every KEY=VALUE value.",
+    )
     p_mask.set_defaults(func=cmd_mask)
 
     p_watch = sub.add_parser(
@@ -379,6 +396,11 @@ def build_parser() -> argparse.ArgumentParser:
         "lock", help="Reversibly mask secrets in a file (restore later with `unlock`)."
     )
     _add_vault_opts(p_lock)
+    p_lock.add_argument(
+        "--dotenv",
+        action="store_true",
+        help="Mask every KEY=VALUE value (auto-enabled for .env files).",
+    )
     p_lock.set_defaults(func=cmd_lock)
 
     p_unlock = sub.add_parser("unlock", help="Restore secrets previously locked in a file.")

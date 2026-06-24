@@ -104,6 +104,44 @@ def test_entropy_ignores_normal_prose(masker):
     assert masker.mask(text).text == text
 
 
+# -- dotenv mode ------------------------------------------------------------
+
+def test_dotenv_masks_all_values_keeps_keys(masker):
+    env = (
+        "# config\n"
+        "LOG_LEVEL=info\n"
+        "APP_PORT=8080\n"
+        "DEBUG=true\n"
+        "API_BASE=https://api.example.com\n"
+        'NAME="Jane Doe"\n'
+    )
+    out = masker.mask(env, dotenv=True).text
+    # Numbers / booleans / comments stay; everything else is masked, keys intact.
+    assert "APP_PORT=8080" in out
+    assert "DEBUG=true" in out
+    assert "# config" in out
+    assert "LOG_LEVEL=[SECRET]" in out          # opaque-but-not-a-number value
+    assert "API_BASE=[SECRET]" in out
+    assert "NAME=[SECRET]" in out
+    assert "Jane Doe" not in out
+
+
+def test_dotenv_export_prefix(masker):
+    out = masker.mask("export SECRET_THING=abcdef\n", dotenv=True).text
+    assert out.strip() == "export SECRET_THING=[SECRET]"
+
+
+def test_dotenv_strips_inline_comment_but_keeps_it(masker):
+    out = masker.mask("TOKEN=abcdef  # my token\n", dotenv=True).text
+    assert "abcdef" not in out
+    assert "# my token" in out
+
+
+def test_non_dotenv_leaves_plain_assignments(masker):
+    # Without dotenv mode, a non-secret-named value is untouched.
+    assert masker.mask("LOG_LEVEL=info").text == "LOG_LEVEL=info"
+
+
 def test_redacts_only_value_in_assignment(masker):
     result = masker.mask("password: hunter2")
     assert result.text == "password: [SECRET]"
