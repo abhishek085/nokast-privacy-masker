@@ -8,10 +8,14 @@ from privacy_masker.masker import Masker
 from privacy_masker.patterns import luhn_valid
 
 
+# Regex + keyword categories only. We pin these for the core-engine tests so they
+# stay deterministic regardless of whether the optional spaCy NER model is present.
+_REGEX_CATEGORIES = set(patterns.REGEX_CATEGORIES) | {patterns.KEYWORD}
+
+
 @pytest.fixture
 def masker():
-    # Default config: every category enabled, default tokens.
-    return Masker(Config())
+    return Masker(Config(enabled_categories=set(_REGEX_CATEGORIES)))
 
 
 # -- emails -----------------------------------------------------------------
@@ -120,7 +124,7 @@ def test_luhn_valid_helper():
 # -- keywords ---------------------------------------------------------------
 
 def test_masks_custom_keyword():
-    config = Config(keywords=["Project Titan"])
+    config = Config(keywords=["Project Titan"], enabled_categories={patterns.KEYWORD})
     masker = Masker(config)
     result = masker.mask("update on Project Titan and project titan")
     assert result.text == "update on [REDACTED] and [REDACTED]"
@@ -128,7 +132,7 @@ def test_masks_custom_keyword():
 
 
 def test_keyword_respects_word_boundary():
-    config = Config(keywords=["Ace"])
+    config = Config(keywords=["Ace"], enabled_categories={patterns.KEYWORD})
     masker = Masker(config)
     # "Ace" should match as a word but not inside "Facebook"/"spaceship".
     result = masker.mask("Ace works at a spaceship company")
@@ -186,3 +190,64 @@ def test_empty_text(masker):
 def test_summary_pluralisation(masker):
     result = masker.mask("a@b.com c@d.com")
     assert result.summary() == "2 emails"
+
+
+# -- PII defaults & NER status (no model required) --------------------------
+
+def test_default_config_enables_high_value_pii():
+    cfg = Config()
+    assert patterns.PERSON in cfg.enabled_categories
+    assert patterns.LOCATION in cfg.enabled_categories
+    # ORG/DATE are off by default to avoid over-redacting ordinary prose.
+    assert patterns.ORG not in cfg.enabled_categories
+    assert patterns.DATE not in cfg.enabled_categories
+
+
+def test_ner_status_off_when_no_ner_categories():
+    m = Masker(Config(enabled_categories={patterns.EMAIL}))
+    assert m.ner_status == "off"
+
+
+# -- NER detection (skipped unless spaCy + a model are installed) ------------
+
+@pytest.fixture(scope="module")
+def ner_masker():
+    pytest.importorskip("spacy")
+    from privacy_masker.detectors import NerUnavailable, load_model
+
+    try:
+        load_model()
+    except NerUnavailable as exc:
+        pytest.skip(str(exc))
+    cfg = Config(
+        enabled_categories={
+            patterns.PERSON,
+            patterns.LOCATION,
+            patterns.ORG,
+            patterns.EMAIL,  # so the NER+regex combined test exercises both
+        }
+    )
+    return Masker(cfg)
+
+
+def test_ner_status_active(ner_masker):
+    assert ner_masker.ner_status == "active"
+
+
+def test_ner_masks_person_name(ner_masker):
+    result = ner_masker.mask("I had lunch with Barack Obama today.")
+    assert "[NAME]" in result.text
+    assert "Obama" not in result.text
+
+
+def test_ner_masks_location(ner_masker):
+    result = ner_masker.mask("She just moved to Paris.")
+    assert "[LOCATION]" in result.text
+    assert "Paris" not in result.text
+
+
+def test_ner_and_regex_combine(ner_masker):
+    result = ner_masker.mask("Email John Smith at john@corp.com")
+    assert "[NAME]" in result.text
+    assert "[EMAIL]" in result.text
+    assert "john@corp.com" not in result.text

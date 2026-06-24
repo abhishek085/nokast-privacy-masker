@@ -22,6 +22,9 @@ dependencies = []
 [project.optional-dependencies]
 # Clipboard read/write for `mask --clipboard` and `watch`.
 clipboard = ["pyperclip>=1.8"]
+# Contextual PII detection (names, locations, orgs, dates) via spaCy NER.
+# After installing, download a model: python -m spacy download en_core_web_sm
+ner = ["spacy>=3.5"]
 dev = ["pytest>=7.0", "pyperclip>=1.8"]
 
 [project.scripts]

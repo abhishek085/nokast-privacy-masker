@@ -21,8 +21,9 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Iterable
 
-from . import patterns
+from . import detectors, patterns
 from .config import Config
+from .detectors import NerUnavailable, SpacyNerDetector
 from .patterns import Finding, Pattern
 
 
@@ -34,6 +35,10 @@ _CATEGORY_LABELS = {
     patterns.SSN: ("SSN", "SSNs"),
     patterns.CREDIT_CARD: ("card number", "card numbers"),
     patterns.KEYWORD: ("keyword", "keywords"),
+    patterns.PERSON: ("name", "names"),
+    patterns.LOCATION: ("location", "locations"),
+    patterns.ORG: ("organisation", "organisations"),
+    patterns.DATE: ("date", "dates"),
 }
 
 
@@ -77,9 +82,15 @@ class Masker:
         self._compile()
 
     def _compile(self) -> None:
-        """Collect the active patterns for the current config."""
+        """Collect the active detectors for the current config.
 
-        active: list[Pattern] = []
+        Sets ``self._detectors`` (regex patterns + custom keywords + an optional
+        spaCy NER detector) and ``self.ner_status`` -- one of ``"off"`` (no NER
+        categories enabled), ``"active"``, or a ``NerUnavailable.reason``
+        (``"no_spacy"`` / ``"no_model"``) so the CLI can guide the user.
+        """
+
+        active: list = []
         # Iterate in a fixed category order so collection (and thus tie-breaking
         # between equal spans) is deterministic regardless of set ordering.
         for category in patterns.ALL_CATEGORIES:
@@ -90,7 +101,20 @@ class Masker:
             for keyword in self.config.keywords:
                 if keyword.strip():
                     active.append(patterns.keyword_pattern(keyword))
-        self._patterns = active
+
+        # Optional NER detector for contextual PII (names, places, ...).
+        self.ner_status = "off"
+        enabled_ner = self.config.enabled_categories & set(patterns.NER_CATEGORIES)
+        if enabled_ner:
+            try:
+                active.append(SpacyNerDetector(enabled_ner))
+                self.ner_status = "active"
+            except NerUnavailable as exc:
+                # Regex masking still works; record why NER is inert.
+                self.ner_status = exc.reason
+                self.ner_message = str(exc)
+
+        self._detectors = active
 
     def _replacement(self, category: str) -> str:
         return self.config.replacements.get(
@@ -99,8 +123,8 @@ class Masker:
 
     def _collect(self, text: str) -> list[Finding]:
         findings: list[Finding] = []
-        for pattern in self._patterns:
-            findings.extend(pattern.finditer(text))
+        for detector in self._detectors:
+            findings.extend(detector.finditer(text))
         return findings
 
     # When two findings cover the exact same span, the more sensitive label
@@ -112,6 +136,11 @@ class Masker:
         patterns.KEYWORD: 3,
         patterns.EMAIL: 4,
         patterns.PHONE: 5,
+        # NER (contextual) findings yield to structured regex matches on a tie.
+        patterns.PERSON: 6,
+        patterns.LOCATION: 7,
+        patterns.ORG: 8,
+        patterns.DATE: 9,
     }
 
     @classmethod

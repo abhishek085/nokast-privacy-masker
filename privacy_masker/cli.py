@@ -32,6 +32,15 @@ BANNER = r"""
 """
 
 
+def _ner_hint(masker: Masker) -> str | None:
+    """Return an actionable hint if PII (NER) categories are on but unavailable."""
+
+    status = getattr(masker, "ner_status", "off")
+    if status in ("no_spacy", "no_model"):
+        return getattr(masker, "ner_message", "NER detection unavailable.")
+    return None
+
+
 def _import_pyperclip():
     try:
         import pyperclip  # noqa: F401
@@ -49,6 +58,10 @@ def _import_pyperclip():
 def cmd_mask(args: argparse.Namespace) -> int:
     config = Config.load()
     masker = Masker(config)
+
+    hint = _ner_hint(masker)
+    if hint:
+        print(f"note: PII detection is enabled but inactive. {hint}", file=sys.stderr)
 
     if args.clipboard:
         pyperclip = _import_pyperclip()
@@ -88,6 +101,11 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
     if not args.quiet:
         print(BANNER)
+        if masker.ner_status == "active":
+            print("PII detection (names, locations) is active via spaCy NER.")
+        hint = _ner_hint(masker)
+        if hint:
+            print(f"note: PII detection is enabled but inactive. {hint}")
         print(
             f"Watching clipboard every {interval:g}s. Copy anything; secrets are "
             "masked automatically.\nPress Ctrl+C to stop.\n",
@@ -163,6 +181,14 @@ def cmd_config(args: argparse.Namespace) -> int:
     print(f"Config file: {Config.path()}")
     print(f"Enabled categories: {', '.join(sorted(config.enabled_categories)) or '(none)'}")
     print(f"Keywords: {', '.join(config.keywords) or '(none)'}")
+
+    masker = Masker(config)
+    status_msg = {
+        "off": "off (no PII categories enabled)",
+        "active": "active (spaCy NER loaded)",
+    }.get(masker.ner_status, getattr(masker, "ner_message", masker.ner_status))
+    print(f"PII / NER detection: {status_msg}")
+
     if args.init:
         path = config.save()
         print(f"Wrote default config to {path}")
