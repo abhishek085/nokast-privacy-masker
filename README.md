@@ -94,24 +94,52 @@ including the Presidio/spaCy NER model.
 
 ## Install
 
+Requires Python 3.9+. The **core engine + CLI have no third-party dependencies**;
+optional features are pulled in via *extras*:
+
+| Extra | Enables | Commands |
+| --- | --- | --- |
+| *(none)* | regex detection (emails, secrets, IPs, SSNs, cards, keywords) | `mask`, `keywords`, `config` |
+| `clipboard` | system-clipboard read/write | `mask --clipboard`, `watch` |
+| `ner` | contextual PII (names, locations, …) via Presidio | adds `[NAME]`/`[LOCATION]`/… |
+| `vault` | reversible encrypted lock/unlock | `lock`, `unlock`, `vault-status` |
+| `all` | clipboard + ner + vault | everything |
+
+### From source — editable (for hacking on the code)
+
 ```bash
-# Core engine + CLI (no third-party dependencies):
-pip install -e .
+git clone https://github.com/abhishek085/nokast-privacy-masker.git
+cd nokast-privacy-masker
 
-# With clipboard support (for `mask --clipboard` and `watch`):
-pip install -e '.[clipboard]'
-
-# With contextual PII detection (names, locations, …):
-pip install -e '.[ner]'
-python -m spacy download en_core_web_sm   # one-time, ~12 MB, local
-
-# With reversible lock/unlock for files (encrypted vault):
-pip install -e '.[vault]'
+pip install -e .                 # core only
+pip install -e '.[all]'          # everything
+pip install -e '.[clipboard]'    # or pick individual extras: clipboard / ner / vault
 ```
 
-Requires Python 3.9+. Without the extras everything still works — the
-pattern-based categories run as normal and the optional features tell you how to
-enable them.
+### From a built wheel — in a clean venv (closest to a real install)
+
+```bash
+cd nokast-privacy-masker
+python -m build                  # produces dist/*.whl  (pip install build)
+
+python -m venv /tmp/pm && source /tmp/pm/bin/activate
+pip install 'dist/nokast_privacy_masker-0.1.0-py3-none-any.whl[all]'
+```
+
+### Enable PII (NER) detection
+
+The `ner` extra needs a one-time, fully-local model download:
+
+```bash
+python -m spacy download en_core_web_sm   # ~12 MB
+```
+
+Without it (or without `[ner]`) everything else still works — the pattern-based
+categories run as normal and `privacy-masker config` tells you how to turn PII on.
+
+> Once published to PyPI you'll be able to `pipx install nokast-privacy-masker`
+> (global CLI) or `pip install 'nokast-privacy-masker[all]'`. See
+> [PUBLISHING.md](PUBLISHING.md).
 
 ---
 
@@ -122,6 +150,14 @@ enable them.
 ```bash
 echo "ping jane@corp.com, pw: hunter2" | privacy-masker mask
 # -> ping [EMAIL], pw: [SECRET]
+
+# more types at once: secret, IP, SSN
+echo "key sk-ABCD1234efgh5678ijkl, host 10.0.0.5, ssn 078-05-1120" | privacy-masker mask
+# -> key [SECRET], host [IP], ssn [SSN]
+
+# contextual PII (needs the [ner] extra + model)
+echo "Sarah Connor flew to Paris" | privacy-masker mask
+# -> [NAME] flew to [LOCATION]
 
 # .env mode: mask *every* KEY=VALUE value (skips numbers/booleans/comments)
 privacy-masker mask --dotenv < .env
@@ -189,6 +225,45 @@ file holds *only* ciphertext.
 > **Threat model:** this stops secrets leaking to a *cloud AI*. It is **not** protection
 > against a local attacker who has both the file and the vault — use a strong passphrase,
 > and keep secrets out of source where you can.
+
+---
+
+## Try it in 60 seconds
+
+After installing (see [Install](#install)), run these to exercise every feature:
+
+```bash
+# 0. confirm it's installed
+privacy-masker --version
+privacy-masker config            # shows enabled categories + NER status
+
+# 1. basic + multi-type masking
+echo "email jane@corp.com, key sk-ABCD1234efgh5678ijkl, host 10.0.0.5" | privacy-masker mask
+
+# 2. contextual PII  (needs [ner] + `spacy download en_core_web_sm`)
+echo "Sarah Connor flew to Paris" | privacy-masker mask
+
+# 3. whole-file .env masking
+printf 'DATABASE_URL=postgres://u:p4ss@10.0.0.5/db\nAPP_PORT=8080\n' | privacy-masker mask --dotenv
+
+# 4. reversible lock / unlock  (needs [vault])
+mkdir /tmp/pmtry && cd /tmp/pmtry
+printf 'API_KEY = "sk-REALsecret123456"\nDB_HOST = "192.168.1.9"\n' > app.py
+privacy-masker lock app.py       # prompts for a passphrase (twice the first time)
+cat app.py                       # -> PMV_… tokens
+privacy-masker unlock app.py     # same passphrase -> restored exactly
+cd - && rm -rf /tmp/pmtry
+
+# 5. custom keyword redaction
+privacy-masker keywords add "Project Titan"
+echo "update on Project Titan" | privacy-masker mask     # -> update on [REDACTED]
+
+# 6. live clipboard auto-mask  (needs [clipboard]) — copy something, then paste
+privacy-masker watch             # Ctrl+C to stop
+```
+
+Running from a checkout? `pytest -q` runs the full suite (NER tests auto-skip
+without the model).
 
 ---
 
