@@ -29,7 +29,12 @@ DEFAULT_REPLACEMENTS: dict[str, str] = {
     patterns.PHONE: "[PHONE]",
     patterns.SSN: "[SSN]",
     patterns.CREDIT_CARD: "[CARD]",
+    patterns.IP: "[IP]",
     patterns.KEYWORD: "[REDACTED]",
+    patterns.PERSON: "[NAME]",
+    patterns.LOCATION: "[LOCATION]",
+    patterns.ORG: "[ORG]",
+    patterns.DATE: "[DATE]",
 }
 
 
@@ -52,7 +57,7 @@ class Config:
     """Runtime configuration for the masker."""
 
     enabled_categories: set[str] = field(
-        default_factory=lambda: set(patterns.ALL_CATEGORIES)
+        default_factory=lambda: set(patterns.DEFAULT_ENABLED)
     )
     replacements: dict[str, str] = field(
         default_factory=lambda: dict(DEFAULT_REPLACEMENTS)

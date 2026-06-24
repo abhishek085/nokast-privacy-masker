@@ -1,12 +1,15 @@
 """Sensitive-data pattern definitions for the privacy masker.
 
 Each :class:`Pattern` knows how to find a kind of sensitive data in a block of
-text. Patterns are intentionally split by *category* (email, secret, phone, ...)
-so the menu-bar app can let users toggle categories on and off, and so findings
-can be reported back to the user ("redacted 2 emails, 1 API key").
+text via a regular expression. Patterns are one kind of *detector*: anything that
+yields :class:`Finding` spans plugs into the same masking pipeline (see
+:mod:`privacy_masker.detectors` for the NER-based detector).
 
-Adding a new detector is just a matter of appending a ``Pattern`` to one of the
-category lists below.
+Patterns are split by *category* (email, secret, phone, ...) so users can toggle
+categories on and off, and so findings can be reported back ("redacted 2 emails").
+
+Adding a new regex detector is just a matter of appending a ``Pattern`` to one of
+the category lists below.
 """
 
 from __future__ import annotations
@@ -17,14 +20,34 @@ from typing import Callable, Iterator, Optional
 
 # Category identifiers. These double as the keys used in the config file to
 # enable/disable a whole category and to look up replacement tokens.
+
+# -- regex-detectable categories (fixed shape) --
 EMAIL = "email"
 SECRET = "secret"
 PHONE = "phone"
 SSN = "ssn"
 CREDIT_CARD = "credit_card"
+IP = "ip"
+# -- user-supplied dictionary --
 KEYWORD = "keyword"
+# -- NER-detected categories (contextual; need the [ner] extra) --
+PERSON = "person"
+LOCATION = "location"
+ORG = "org"
+DATE = "date"
 
-ALL_CATEGORIES = (EMAIL, SECRET, PHONE, SSN, CREDIT_CARD, KEYWORD)
+# Categories that have built-in regex patterns.
+REGEX_CATEGORIES = (EMAIL, SECRET, PHONE, SSN, CREDIT_CARD, IP)
+# Categories resolved by the spaCy NER detector.
+NER_CATEGORIES = (PERSON, LOCATION, ORG, DATE)
+
+ALL_CATEGORIES = REGEX_CATEGORIES + (KEYWORD,) + NER_CATEGORIES
+
+# What's on out of the box. NER person/location are high-value, low-noise PII so
+# they're enabled by default (they simply do nothing until the [ner] extra and a
+# model are installed). ORG and DATE are off by default -- redacting every company
+# name or date tends to over-redact ordinary prose.
+DEFAULT_ENABLED = REGEX_CATEGORIES + (KEYWORD, PERSON, LOCATION)
 
 
 @dataclass(frozen=True)
@@ -190,6 +213,14 @@ _CREDIT_CARD = Pattern(
     validate=luhn_valid,
 )
 
+# IPv4 addresses with octet validation (each 0-255), so version strings like
+# "1.2.3.4" still match but "999.1.1.1" doesn't. (IPv6 is a future addition.)
+_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+_IPV4 = Pattern(
+    category=IP,
+    regex=re.compile(rf"\b{_OCTET}(?:\.{_OCTET}){{3}}\b"),
+)
+
 
 # Built-in patterns grouped by category, so callers can enable/disable whole
 # categories cheaply.
@@ -199,6 +230,7 @@ BUILTIN_PATTERNS: dict[str, list[Pattern]] = {
     PHONE: [_PHONE],
     SSN: [_SSN],
     CREDIT_CARD: [_CREDIT_CARD],
+    IP: [_IPV4],
 }
 
 
