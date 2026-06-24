@@ -71,10 +71,24 @@ that has *no fixed shape* and can't be matched by regex:
 <sub>*ORG and DATE are off by default because redacting every company name or date
 tends to over-redact ordinary prose. Enable them in the config when you need them.</sub>
 
+**Whole-file `.env` mode** (`--dotenv`) — when the *whole file is config*, masks the
+value of **every** `KEY=VALUE` line regardless of the key name, so even an opaque
+secret with a non-hinting name (`FOO=hunter2`) is caught. Numbers, booleans, blank
+values, key names and comments are left intact. Auto-enabled for `.env*` files in
+`lock`. This is the catch-all when heuristics aren't enough.
+
 Placeholders are **labelled** (`[EMAIL]`, not `XXX`) so the AI still understands the
 shape of your text — it knows a name *was* there without ever seeing it. Every token,
 category, and the keyword list is configurable. Everything runs **fully locally**,
 including the Presidio/spaCy NER model.
+
+### Three tiers of coverage
+
+| Tier | What | When |
+| --- | --- | --- |
+| **1. `--dotenv`** | mask *every* value in a `KEY=VALUE` file | the whole file is secrets/config (`.env`) |
+| **2. Pattern + entropy** | vendor formats, assignments, URL creds, high-entropy catch-all | secrets sprinkled in normal code (default `mask`) |
+| **3. Presidio NER** | names, locations, orgs, dates | contextual PII with no fixed shape |
 
 ---
 
